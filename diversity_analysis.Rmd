@@ -1,0 +1,62 @@
+---
+title: "Diversity analysis"
+output: html_notebook
+---
+
+
+
+```{r}
+setwd("/home/r_analysis")
+load("ps7_G.Rdata")
+############
+`%!in%` = Negate(`%in%`) #高级
+taxlevel="Genus"
+datasets="dataset_1"
+samplesource="feces"  #blood,feces,brain
+ps7 <- phyloseq::subset_samples(ps7_G,source %in% samplesource)  #rnaseq为organ，16s为source
+ps7 <- phyloseq::subset_samples(ps7,dataset %!in% datasets) #datasets
+#ps7 <- phyloseq::subset_samples(ps7,sampleid %in% sam_index)  #脑,brain菌群重复的prjna557205
+ps7 <- phyloseq::subset_taxa(ps7,Genus %in% feces_posi) #此处的feces_posi已经是去除过污染菌群的genera
+ps7 <- prune_samples(sample_sums(ps7) > 0,ps7)
+ps7 <- prune_taxa(taxa_sums(ps7) > 0, ps7) #为了保证targetgenus都在后面的研究中至少出现一次
+ps <- ps7
+#samplesize=3000
+ps.rarefied = rarefy_even_depth(ps, rngseed=115, sample.size=3000, replace=F) 
+
+
+#α多样性图，如何添加统计结果(stat_compare_means)
+library(ggpubr) #咱家统计结果于图像
+library(microbiome)
+library(amplicon)
+#group比较
+mycompare=list(c("PD_Con","PD"))
+p = plot_richness(ps.rarefied, x="diseasetype",color="diseasetype", measures=c("Observed", "Shannon","Simpson","Chao1")) + geom_boxplot() + 
+  stat_compare_means(comparisons=mycompare,label = "p.signif",method = 'wilcox')
+p
+filename=paste0("plot_richness_rarefied_3000_genus.",samplesource,".pdf")
+
+ggsave(p, file = filename, width = 17, height = 20, unit = 'cm')
+
+#计算β多样性数据和统计检验
+ps.rarefied = transform_sample_counts(ps.rarefied, function(x) x / sum(x)*100)
+rarefied_otutable <-as.data.frame(ps.rarefied@otu_table@.Data)
+rarefied_taxo <- as.matrix(ps.rarefied@tax_table@.Data) #taxo用matrix，后面用的比较多
+rarefied_metadata <-as.data.frame(ps.rarefied@sam_data@.Data)
+colnames(rarefied_metadata) <- ps.rarefied@sam_data@names
+rownames(rarefied_metadata) <- ps.rarefied@sam_data@row.names
+rarefied_metadata$sample <- rownames(rarefied_metadata)
+#BetaDiv统计分析
+library(grid)
+dist = "bray" # 选择 bray 距离
+method = "PCoA" # 排序方法: DCA, CCA, RDA, NMDS, MDS, PCoA, PCA, LDA
+# 输入OTU表、样本元数据、进化树；指定距离编号，分组列和排序方法，以及P阈值和统计方法
+beta.result = BetaDiv(otu = rarefied_otutable, map = rarefied_metadata, tree = ps.rarefied@phy_tree,
+                      group = "diseasetype", dist = dist, method = method, #region,group,project,platform
+                      Micromet = "adonis", pvalue.cutoff = 0.05)
+p = grid.draw(beta.result[[1]])
+p
+filename=paste0("BetaDiv_region_bray_PCoA_3000_group_rarefied_genus.",samplesource,".pdf")
+
+ggsave(p, file = filename, width = 20, height = 20, unit = 'cm')
+```
+
